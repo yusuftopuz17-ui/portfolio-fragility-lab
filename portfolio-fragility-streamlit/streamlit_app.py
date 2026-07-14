@@ -134,6 +134,32 @@ def normalized_chart(result, benchmark: str) -> go.Figure:
     return figure
 
 
+def portfolio_benchmark_chart(result, benchmark: str) -> go.Figure:
+    aligned = pd.concat(
+        [result.portfolio_returns.rename("Portfolio"), result.benchmark_returns.rename(benchmark)],
+        axis=1,
+    ).dropna()
+    growth = (1 + aligned).cumprod() * 100
+    figure = base_figure("Portfolio vs Benchmark — Growth of 100")
+    figure.add_trace(
+        go.Scatter(
+            x=growth.index,
+            y=growth["Portfolio"],
+            name="Portfolio",
+            line={"color": "#43d5c7", "width": 2.6},
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=growth.index,
+            y=growth[benchmark],
+            name=benchmark,
+            line={"color": "#ffffff", "width": 2.1, "dash": "dot"},
+        )
+    )
+    return figure
+
+
 def score_label(score: float) -> tuple[str, str]:
     if score < 35:
         return "Resilient", "score-low"
@@ -277,6 +303,9 @@ metric_columns[5].metric("Median Recovery", recovery_display)
 
 (
     overview_tab,
+    core_analytics_tab,
+    risk_analysis_tab,
+    historical_performance_tab,
     regimes_tab,
     liquidity_tab,
     stress_tab,
@@ -284,7 +313,18 @@ metric_columns[5].metric("Median Recovery", recovery_display)
     simulation_tab,
     report_tab,
 ) = st.tabs(
-    ["Executive View", "Market Regimes", "Liquidity Cascade", "Stress Scenarios", "Resilient Allocation", "Simulation", "Report"]
+    [
+        "Executive View",
+        "Core Analytics",
+        "Risk Analysis",
+        "Historical Performance",
+        "Market Regimes",
+        "Liquidity Cascade",
+        "Stress Scenarios",
+        "Resilient Allocation",
+        "Simulation",
+        "Report",
+    ]
 )
 
 with overview_tab:
@@ -318,6 +358,217 @@ with overview_tab:
     )
     style_figure(component_figure).update_layout(coloraxis_showscale=False)
     st.plotly_chart(component_figure, width="stretch")
+
+with core_analytics_tab:
+    st.subheader("Return, downside risk, and benchmark analytics")
+    core_metrics = st.columns(6)
+    core_metrics[0].metric(f"{config.confidence:.0%} VaR", money(metrics["var_currency"]))
+    core_metrics[1].metric("Expected Shortfall", money(metrics["es_currency"]))
+    core_metrics[2].metric("Annual Return", pct(metrics["historical_return"]))
+    core_metrics[3].metric("Annual Volatility", pct(metrics["historical_volatility"]))
+    core_metrics[4].metric("Sharpe Ratio", f"{metrics['sharpe']:.2f}")
+    core_metrics[5].metric("Benchmark Beta", f"{metrics['beta']:.2f}")
+
+    probability_metrics = st.columns(6)
+    probability_metrics[0].metric("Loss Probability", pct(metrics["probability_loss"]))
+    probability_metrics[1].metric("Target Probability", pct(metrics["probability_target"]))
+    probability_metrics[2].metric("Historical Max Drawdown", pct(metrics["historical_max_drawdown"]))
+    probability_metrics[3].metric(f"{config.benchmark} Return", pct(metrics["benchmark_return"]))
+    probability_metrics[4].metric(f"{config.benchmark} Volatility", pct(metrics["benchmark_volatility"]))
+    probability_metrics[5].metric("Portfolio–Benchmark Corr.", f"{metrics['benchmark_correlation']:.2f}")
+
+    st.plotly_chart(portfolio_benchmark_chart(result, config.benchmark), width="stretch")
+
+    left, right = st.columns([1.35, 1])
+    with left:
+        contribution_figure = px.bar(
+            result.risk_contributions,
+            x="Ticker",
+            y="Risk Contribution",
+            color="Risk Contribution",
+            color_continuous_scale=["#183047", "#43d5c7"],
+            title="Asset Contribution to Portfolio Volatility",
+        )
+        style_figure(contribution_figure).update_layout(coloraxis_showscale=False)
+        contribution_figure.update_yaxes(tickformat=".0%")
+        st.plotly_chart(contribution_figure, width="stretch")
+    with right:
+        benchmark_table = pd.DataFrame(
+            {
+                "Metric": ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Maximum Drawdown"],
+                "Portfolio": [
+                    metrics["historical_return"],
+                    metrics["historical_volatility"],
+                    metrics["sharpe"],
+                    metrics["historical_max_drawdown"],
+                ],
+                config.benchmark: [
+                    metrics["benchmark_return"],
+                    metrics["benchmark_volatility"],
+                    metrics["benchmark_sharpe"],
+                    metrics["benchmark_max_drawdown"],
+                ],
+            }
+        )
+        display_table = benchmark_table.copy()
+        for row in [0, 1, 3]:
+            display_table.loc[row, ["Portfolio", config.benchmark]] = display_table.loc[
+                row, ["Portfolio", config.benchmark]
+            ].map(lambda value: f"{value:.1%}")
+        display_table.loc[2, ["Portfolio", config.benchmark]] = display_table.loc[
+            2, ["Portfolio", config.benchmark]
+        ].map(lambda value: f"{value:.2f}")
+        st.dataframe(display_table, hide_index=True, width="stretch")
+        st.metric("Tracking Error", pct(metrics["tracking_error"]))
+        information_ratio = metrics["information_ratio"]
+        st.metric(
+            "Information Ratio",
+            f"{information_ratio:.2f}" if np.isfinite(information_ratio) else "N/A",
+        )
+
+    st.dataframe(
+        result.risk_contributions.style.format(
+            {"Weight": "{:.1%}", "Risk Contribution": "{:.1%}"}
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    st.caption(
+        "Available simulation models: Regime Switching, Geometric Brownian Motion, "
+        "Historical Bootstrap, and Student-t. Change the active model in the sidebar."
+    )
+
+with risk_analysis_tab:
+    st.subheader("Downside risk and portfolio risk decomposition")
+    risk_metrics = st.columns(6)
+    risk_metrics[0].metric(f"{config.confidence:.0%} Value at Risk", money(metrics["var_currency"]))
+    risk_metrics[1].metric("Expected Shortfall", money(metrics["es_currency"]))
+    risk_metrics[2].metric("Median Simulated Drawdown", pct(metrics["median_simulated_drawdown"]))
+    risk_metrics[3].metric("Historical Max Drawdown", pct(metrics["historical_max_drawdown"]))
+    risk_metrics[4].metric("Sharpe Ratio", f"{metrics['sharpe']:.2f}")
+    risk_metrics[5].metric("Benchmark Beta", f"{metrics['beta']:.2f}")
+
+    terminal_returns = result.terminal_values / config.initial_investment - 1
+    var_cutoff = -metrics["var_currency"] / config.initial_investment
+    es_cutoff = -metrics["es_currency"] / config.initial_investment
+    tail_figure = px.histogram(
+        x=terminal_returns,
+        nbins=65,
+        labels={"x": "Terminal return", "y": "Simulation paths"},
+        color_discrete_sequence=["#4c78a8"],
+        opacity=0.82,
+        title="Terminal Return Distribution — VaR and Expected Shortfall",
+    )
+    style_figure(tail_figure)
+    tail_figure.add_vline(
+        x=var_cutoff,
+        line_dash="dash",
+        line_color="#f2a65a",
+        annotation_text="VaR cutoff",
+    )
+    tail_figure.add_vline(
+        x=es_cutoff,
+        line_dash="dot",
+        line_color="#ff6b6b",
+        annotation_text="Expected Shortfall",
+    )
+    tail_figure.update_xaxes(tickformat=".0%")
+    st.plotly_chart(tail_figure, width="stretch")
+
+    left, right = st.columns([1.4, 1])
+    with left:
+        contribution_figure = px.bar(
+            result.risk_contributions,
+            x="Ticker",
+            y="Risk Contribution",
+            color="Risk Contribution",
+            color_continuous_scale=["#183047", "#43d5c7"],
+            title="Asset Risk Contribution",
+        )
+        style_figure(contribution_figure).update_layout(coloraxis_showscale=False)
+        contribution_figure.update_yaxes(tickformat=".0%")
+        st.plotly_chart(contribution_figure, width="stretch")
+    with right:
+        probability_frame = pd.DataFrame(
+            {
+                "Outcome": ["Loss", "Positive return", "Target reached"],
+                "Probability": [
+                    metrics["probability_loss"],
+                    1 - metrics["probability_loss"],
+                    metrics["probability_target"],
+                ],
+            }
+        )
+        probability_figure = px.bar(
+            probability_frame,
+            x="Outcome",
+            y="Probability",
+            color="Outcome",
+            text="Probability",
+            title="Outcome Probabilities",
+            color_discrete_sequence=["#ff6b6b", "#43d5c7", "#ad7cff"],
+        )
+        style_figure(probability_figure).update_layout(showlegend=False)
+        probability_figure.update_yaxes(tickformat=".0%", range=[0, 1])
+        probability_figure.update_traces(texttemplate="%{text:.1%}", textposition="outside")
+        st.plotly_chart(probability_figure, width="stretch")
+
+    st.dataframe(
+        result.risk_contributions.style.format(
+            {"Weight": "{:.1%}", "Risk Contribution": "{:.1%}"}
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+
+with historical_performance_tab:
+    st.subheader("Historical portfolio and benchmark performance")
+    historical_metrics = st.columns(6)
+    historical_metrics[0].metric("Portfolio Annual Return", pct(metrics["historical_return"]))
+    historical_metrics[1].metric("Portfolio Volatility", pct(metrics["historical_volatility"]))
+    historical_metrics[2].metric("Portfolio Sharpe", f"{metrics['sharpe']:.2f}")
+    historical_metrics[3].metric("Maximum Drawdown", pct(metrics["historical_max_drawdown"]))
+    historical_metrics[4].metric("Beta", f"{metrics['beta']:.2f}")
+    historical_metrics[5].metric("Tracking Error", pct(metrics["tracking_error"]))
+
+    st.plotly_chart(portfolio_benchmark_chart(result, config.benchmark), width="stretch")
+    st.plotly_chart(normalized_chart(result, config.benchmark), width="stretch")
+
+    benchmark_comparison = pd.DataFrame(
+        {
+            "Metric": [
+                "Annual Return",
+                "Annual Volatility",
+                "Sharpe Ratio",
+                "Maximum Drawdown",
+                "Correlation",
+                "Beta",
+                "Tracking Error",
+                "Information Ratio",
+            ],
+            "Portfolio": [
+                f"{metrics['historical_return']:.1%}",
+                f"{metrics['historical_volatility']:.1%}",
+                f"{metrics['sharpe']:.2f}",
+                f"{metrics['historical_max_drawdown']:.1%}",
+                f"{metrics['benchmark_correlation']:.2f}",
+                f"{metrics['beta']:.2f}",
+                f"{metrics['tracking_error']:.1%}",
+                f"{metrics['information_ratio']:.2f}" if np.isfinite(metrics["information_ratio"]) else "N/A",
+            ],
+            config.benchmark: [
+                f"{metrics['benchmark_return']:.1%}",
+                f"{metrics['benchmark_volatility']:.1%}",
+                f"{metrics['benchmark_sharpe']:.2f}",
+                f"{metrics['benchmark_max_drawdown']:.1%}",
+                "1.00",
+                "1.00",
+                "0.0%",
+                "N/A",
+            ],
+        }
+    )
+    st.dataframe(benchmark_comparison, hide_index=True, width="stretch")
 
 with regimes_tab:
     col1, col2 = st.columns([1, 1.4])
