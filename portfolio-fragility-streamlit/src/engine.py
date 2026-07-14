@@ -409,6 +409,15 @@ def run_analysis(
     historical_drawdown = (growth / growth.cummax() - 1).min()
     aligned = pd.concat([portfolio_returns, benchmark_returns], axis=1).dropna()
     beta = aligned.iloc[:, 0].cov(aligned.iloc[:, 1]) / aligned.iloc[:, 1].var()
+    benchmark_aligned = aligned.iloc[:, 1]
+    benchmark_annual_return = (
+        (1 + benchmark_aligned).prod() ** (TRADING_DAYS / len(benchmark_aligned)) - 1
+    )
+    benchmark_volatility = benchmark_aligned.std() * np.sqrt(TRADING_DAYS)
+    benchmark_growth = (1 + benchmark_aligned).cumprod()
+    benchmark_max_drawdown = (benchmark_growth / benchmark_growth.cummax() - 1).min()
+    active_returns = aligned.iloc[:, 0] - benchmark_aligned
+    tracking_error = active_returns.std() * np.sqrt(TRADING_DAYS)
     betas = _asset_betas(returns, benchmark_returns)
     covariance = returns.cov().to_numpy() * TRADING_DAYS
     portfolio_volatility = np.sqrt(weights @ covariance @ weights)
@@ -493,6 +502,17 @@ def run_analysis(
         "historical_max_drawdown": float(historical_drawdown),
         "median_simulated_drawdown": float(np.median(maximum_drawdowns)),
         "beta": float(beta),
+        "benchmark_return": float(benchmark_annual_return),
+        "benchmark_volatility": float(benchmark_volatility),
+        "benchmark_sharpe": float(
+            (benchmark_annual_return - config.risk_free_rate) / benchmark_volatility
+        ),
+        "benchmark_max_drawdown": float(benchmark_max_drawdown),
+        "benchmark_correlation": float(aligned.iloc[:, 0].corr(benchmark_aligned)),
+        "tracking_error": float(tracking_error),
+        "information_ratio": float(
+            active_returns.mean() * TRADING_DAYS / tracking_error
+        ) if tracking_error > 0 else np.nan,
         "p5_terminal": float(np.quantile(terminal, 0.05)),
         "p95_terminal": float(np.quantile(terminal, 0.95)),
         "median_recovery_days": float(np.nanmedian(recovery_days)) if np.isfinite(recovery_days).any() else np.nan,
