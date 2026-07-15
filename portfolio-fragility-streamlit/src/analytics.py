@@ -179,7 +179,7 @@ def simulation_statistics(result, config) -> pd.DataFrame:
                 values.quantile(0.05), values.quantile(0.95), metrics["var_currency"], metrics["es_currency"],
                 metrics["probability_loss"], metrics["probability_target"],
             ],
-            "Format": ["currency", "currency", "currency", "ratio", "ratio", "currency", "currency", "currency", "currency", "percent", "percent"],
+            "Format": ["currency", "currency", "currency", "ratio", "ratio", "currency", "currency", "currency", "currency", "probability", "probability"],
         }
     )
 

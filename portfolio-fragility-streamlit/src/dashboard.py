@@ -161,6 +161,32 @@ def pct(value: float) -> str:
     return "N/A" if not np.isfinite(value) else f"{value:.1%}"
 
 
+def probability(value: float) -> str:
+    """Format probabilities without rounding a near-certain result to 100%."""
+    if not np.isfinite(value):
+        return "N/A"
+    value = float(np.clip(value, 0, 1))
+    if 0 < value < 0.0005:
+        return "<0.1%"
+    if 0.9995 <= value < 1:
+        return ">99.9%"
+    return f"{value:.1%}"
+
+
+def probability_partition_labels(values: list[float]) -> list[str]:
+    """Round a mutually exclusive partition to tenths that total exactly 100.0%."""
+    probabilities = np.clip(np.asarray(values, dtype=float), 0, 1)
+    total = probabilities.sum()
+    probabilities = probabilities / total if total > 0 else np.zeros_like(probabilities)
+    scaled = probabilities * 1000
+    units = np.floor(scaled).astype(int)
+    remainder = 1000 - int(units.sum())
+    if remainder > 0:
+        order = np.argsort(-(scaled - units))
+        units[order[:remainder]] += 1
+    return [f"{unit / 10:.1f}%" for unit in units]
+
+
 def ratio(value: float) -> str:
     return "N/A" if not np.isfinite(value) else f"{value:.2f}"
 
@@ -319,17 +345,30 @@ def terminal_distribution(result, config) -> go.Figure:
     return figure
 
 
-def outcome_probability_chart(result) -> go.Figure:
+def outcome_probability_chart(result, config) -> go.Figure:
     metrics = result.metrics
+    probabilities = [
+        metrics["probability_loss"],
+        metrics["probability_below_target_without_loss"],
+        metrics["probability_target"],
+    ]
+    labels = probability_partition_labels(probabilities)
+    path_count = len(result.terminal_values)
     frame = pd.DataFrame({
-        "Outcome": ["Loss", "Positive return", "Target reached"],
-        "Probability": [metrics["probability_loss"], 1 - metrics["probability_loss"], metrics["probability_target"]],
+        "Outcome": ["Loss", "No loss, below target", "Target reached"],
+        "Probability": probabilities,
+        "Display": labels,
+        "Paths": [int(round(value * path_count)) for value in probabilities],
     })
-    figure = px.bar(frame, x="Outcome", y="Probability", color="Outcome", text="Probability",
-                    color_discrete_map={"Loss": COLORS["negative"], "Positive return": COLORS["positive"], "Target reached": COLORS["purple"]})
-    style_figure(figure, "Outcome Probabilities — Categories May Overlap", 390)
+    figure = px.bar(frame, x="Outcome", y="Probability", color="Outcome", text="Display",
+                    custom_data=["Paths"],
+                    color_discrete_map={"Loss": COLORS["negative"], "No loss, below target": COLORS["accent"], "Target reached": COLORS["purple"]})
+    style_figure(figure, "Mutually Exclusive Terminal Outcomes — Total 100%", 390)
     figure.update_yaxes(tickformat=".0%", range=[0, 1.08])
-    figure.update_traces(texttemplate="%{text:.1%}", textposition="outside", hovertemplate="%{x}: %{y:.1%}<extra></extra>")
+    figure.update_traces(
+        texttemplate="%{text}", textposition="outside",
+        hovertemplate="%{x}: %{y:.2%}<br>Paths: %{customdata[0]:,}<extra></extra>",
+    )
     figure.update_layout(showlegend=False)
     return figure
 
@@ -341,8 +380,8 @@ def render_executive(result, config) -> None:
     kpi_grid([
         {"label": "Fragility Score", "value": f"{metrics['fragility_score']:.0f}/100", "badge": status, "tone": status_tone, "help": "Composite modeled sensitivity to drawdown, liquidity, forced sales, correlation instability, and concentration."},
         {"label": "Expected Terminal Wealth", "value": money(metrics["expected_terminal"]), "badge": "Modeled", "tone": "neutral", "help": "Mean terminal wealth across simulated paths after modeled liquidity events."},
-        {"label": "Probability of Loss", "value": pct(metrics["probability_loss"]), "badge": "High" if metrics["probability_loss"] > .4 else "Watch" if metrics["probability_loss"] > .25 else "Low", "tone": "negative" if metrics["probability_loss"] > .4 else "warning", "help": "Share of simulated paths ending below the initial investment."},
-        {"label": "Probability of Target", "value": pct(metrics["probability_target"]), "badge": "Target", "tone": "neutral", "help": "Share of simulated paths ending at or above the selected target value."},
+        {"label": "Probability of Loss", "value": probability(metrics["probability_loss"]), "badge": "High" if metrics["probability_loss"] > .4 else "Watch" if metrics["probability_loss"] > .25 else "Low", "tone": "negative" if metrics["probability_loss"] > .4 else "warning", "help": f"{round(metrics['probability_loss'] * config.simulations):,} of {config.simulations:,} simulated paths ended below {money(config.initial_investment)}."},
+        {"label": "Probability of Target", "value": probability(metrics["probability_target"]), "badge": "Target", "tone": "neutral", "help": f"{round(metrics['probability_target'] * config.simulations):,} of {config.simulations:,} simulated paths ended at or above the selected {money(config.target_value)} target."},
         {"label": f"Monte Carlo VaR ({config.confidence:.0%})", "value": money(metrics["var_currency"]), "badge": "Tail", "tone": "warning", "help": "Modeled loss threshold exceeded in the worst tail defined by the selected confidence level."},
         {"label": "Expected Shortfall", "value": money(metrics["es_currency"]), "badge": "Tail", "tone": "negative", "help": "Average modeled loss beyond the VaR threshold."},
         {"label": "Median Recovery Time", "value": days(metrics["median_recovery_days"]), "badge": "Modeled", "tone": "neutral", "help": "Median trading days from simulated trough to recovery of the prior peak, among recovered paths."},
@@ -356,7 +395,7 @@ def render_executive(result, config) -> None:
         st.plotly_chart(fragility_gauge(result), use_container_width=True, key="executive_fragility_gauge")
     with right:
         findings = [
-            f"Probability of loss: <b>{pct(metrics['probability_loss'])}</b>; target probability: <b>{pct(metrics['probability_target'])}</b>.",
+            f"Probability of loss: <b>{probability(metrics['probability_loss'])}</b>; target probability: <b>{probability(metrics['probability_target'])}</b>.",
             f"{config.confidence:.0%} VaR: <b>{money(metrics['var_currency'])}</b>; Expected Shortfall: <b>{money(metrics['es_currency'])}</b>.",
             f"Crisis correlation rises from <b>{metrics['normal_correlation']:.2f}</b> to <b>{metrics['crisis_correlation']:.2f}</b>.",
             f"Largest risk contributor: <b>{largest_risk['Ticker']}</b> at <b>{pct(largest_risk['Risk Contribution'])}</b> of modeled volatility.",
@@ -619,20 +658,22 @@ def render_stress_fragility(result, config) -> None:
 
 def render_simulation(result, config) -> None:
     method_alias = {"Geometric Brownian Motion": "GBM", "Historical Bootstrap": "Bootstrap", "Student-t": "Student-t", "Regime Switching": "Regime Switching"}.get(config.method, config.method)
-    st.markdown(f'<div class="callout"><b>Model:</b> {escape(method_alias)} · <b>Paths:</b> {config.simulations:,} · <b>Horizon:</b> {config.simulation_days} trading days · <b>Confidence:</b> {config.confidence:.0%}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="callout"><b>Model:</b> {escape(method_alias)} · <b>Paths:</b> {config.simulations:,} · <b>Horizon:</b> {config.simulation_days} trading days · <b>Initial:</b> {money(config.initial_investment)} · <b>Target:</b> {money(config.target_value)} · <b>Confidence:</b> {config.confidence:.0%}</div>', unsafe_allow_html=True)
     distribution_tab, paths_tab, drawdown_tab = st.tabs(["Distribution", "Paths & Percentiles", "Drawdown Risk"])
     with distribution_tab:
         left, right = st.columns([1.35, .85])
         with left:
             st.plotly_chart(terminal_distribution(result, config), use_container_width=True, key="simulation_terminal_distribution")
         with right:
-            st.plotly_chart(outcome_probability_chart(result), use_container_width=True, key="simulation_outcomes")
-            st.caption("Positive return includes paths that may also reach the target; these bars are not mutually exclusive and are not intended to sum to 100%.")
+            st.plotly_chart(outcome_probability_chart(result, config), use_container_width=True, key="simulation_outcomes")
+            st.caption("Every simulated path appears in exactly one category: loss, no loss but below target, or target reached. Displayed percentages are rounded to total exactly 100.0%.")
         stats = simulation_statistics(result, config)
         display_values = []
         for _, row in stats.iterrows():
             if row["Format"] == "currency":
                 display_values.append(money(row["Value"]))
+            elif row["Format"] == "probability":
+                display_values.append(probability(row["Value"]))
             elif row["Format"] == "percent":
                 display_values.append(pct(row["Value"]))
             else:

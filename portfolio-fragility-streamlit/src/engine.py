@@ -387,6 +387,10 @@ def run_analysis(
     volumes: pd.DataFrame,
 ) -> AnalysisResult:
     """Run historical, regime, liquidity-cascade, stress, and allocation analytics."""
+    if config.initial_investment <= 0:
+        raise PortfolioError("Initial investment must be greater than zero.")
+    if config.target_value <= config.initial_investment:
+        raise PortfolioError("Target portfolio value must be greater than the initial investment.")
     returns = prices.pct_change(fill_method=None).dropna()
     weights = np.asarray(config.weights)
     portfolio_returns = returns.dot(weights).rename("Portfolio")
@@ -522,11 +526,15 @@ def run_analysis(
             "Correlation Blend": [0.0, 0.0, 0.72, 0.30],
         }
     )
+    loss_mask = terminal < config.initial_investment
+    target_mask = terminal >= config.target_value
+    below_target_without_loss_mask = ~(loss_mask | target_mask)
     metrics = {
         "expected_terminal": float(terminal.mean()),
         "median_terminal": float(np.median(terminal)),
-        "probability_loss": float(np.mean(terminal < config.initial_investment)),
-        "probability_target": float(np.mean(terminal >= config.target_value)),
+        "probability_loss": float(np.mean(loss_mask)),
+        "probability_below_target_without_loss": float(np.mean(below_target_without_loss_mask)),
+        "probability_target": float(np.mean(target_mask)),
         "var_currency": float(max(0, -threshold * config.initial_investment)),
         "es_currency": float(max(0, -tail.mean() * config.initial_investment)),
         "historical_return": float(annual_return),
