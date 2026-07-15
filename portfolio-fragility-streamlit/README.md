@@ -16,7 +16,11 @@ A results-first institutional portfolio stress-testing application. The platform
 - Transparent 0–100 Portfolio Fragility Score
 - Current versus crisis-resilient allocation comparison
 - GBM, historical bootstrap, Student-t, and regime-switching simulations
-- Interactive Plotly dashboards and downloadable Excel/CSV reports
+- Six-section black-and-charcoal institutional dashboard with responsive KPI cards
+- Historical and stressed correlation heatmaps with dynamic diversification commentary
+- Long-only efficient frontier, rolling volatility, rolling Sharpe, beta, and benchmark correlation
+- Historical portfolio/benchmark drawdowns with peak, trough, recovery, and duration diagnostics
+- Interactive Plotly dashboards and Excel, CSV, PDF, and PowerPoint exports
 
 ## Run locally
 
@@ -40,8 +44,8 @@ streamlit run streamlit_app.py
 
 ## Model transparency
 
-The stress scenarios are educational approximations based on broad historical market behavior. Liquidity scores, spreads, liquidation capacity, and market impact are transparent proxies rather than security-level dealer quotes. The crisis-resilient allocation uses inverse volatility, beta penalties, liquidity scores, and a 45% position cap. It is an analytical comparison, not an investment recommendation.
+The stress scenarios are educational approximations based on broad historical market behavior. Liquidity scores, spreads, liquidation capacity, and market impact are transparent proxies rather than security-level dealer quotes. The crisis-resilient allocation uses inverse volatility, beta penalties, liquidity scores, and a 45% position cap. It is an analytical comparison, not an investment recommendation. Report files are generated locally in memory; no external AI or reporting API is called.
 
 ## Disclaimer
 
-For educational and research purposes only. Historical estimates and simulated scenarios do not guarantee future results and do not constitute investment advice.
+Results are model-based estimates derived from historical data and stated assumptions. They are not forecasts, guarantees, regulatory risk measures, or investment advice.

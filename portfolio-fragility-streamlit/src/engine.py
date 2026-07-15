@@ -239,10 +239,11 @@ def apply_liquidity_cascade(
     weights: np.ndarray,
     liquidity: pd.DataFrame,
     config: AnalysisConfig,
+    terminal_only: bool = False,
 ) -> tuple[np.ndarray, dict[str, float]]:
     """Apply redemption, margin-call, forced-sale, spread, slippage, and market-impact losses."""
     rng = np.random.default_rng(config.seed + 991)
-    adjusted = paths.copy()
+    adjusted = paths[-1].copy() if terminal_only else paths.copy()
     drawdowns = paths / np.maximum.accumulate(paths, axis=0) - 1
     breached = drawdowns <= config.margin_trigger
     breach_exists = breached.any(axis=0)
@@ -268,12 +269,15 @@ def apply_liquidity_cascade(
 
     for simulation in np.flatnonzero(forced_sale):
         day = int(first_breach[simulation])
-        current_value = adjusted[day, simulation]
+        current_value = paths[day, simulation] if terminal_only else adjusted[day, simulation]
         withdrawal = current_value * sale_fraction[simulation]
         cost = withdrawal * cost_rate[simulation]
         sale_cost[simulation] = cost
         multiplier = max(0.01, (current_value - withdrawal - cost) / current_value)
-        adjusted[day:, simulation] *= multiplier
+        if terminal_only:
+            adjusted[simulation] *= multiplier
+        else:
+            adjusted[day:, simulation] *= multiplier
 
     cascade_metrics = {
         "redemption_probability_realized": float(redemption.mean()),
@@ -333,6 +337,8 @@ def stress_test_portfolio(
                 if ticker in gold:
                     shocks[index] += 0.01
         shocks = np.clip(shocks, -0.80, 0.45)
+        asset_contributions = weights * shocks
+        largest_loss_driver = tickers[int(np.argmin(asset_contributions))]
         gross_return = float(weights @ shocks)
         stressed_capacity = max(0.01, 0.30 * float(weights @ scores) * scenario["liquidity"])
         cash_need = max(0.0, config.redemption_pct + config.margin_call_pct - config.cash_buffer_pct)
@@ -350,6 +356,7 @@ def stress_test_portfolio(
                 "Stressed Value": config.initial_investment * (1 + net_return),
                 "Correlation Assumption": scenario["correlation"],
                 "Liquidity Capacity Multiplier": scenario["liquidity"],
+                "Largest Loss Driver": largest_loss_driver,
             }
         )
     return pd.DataFrame(rows)
@@ -430,6 +437,24 @@ def run_analysis(
     stress_tests = stress_test_portfolio(config.tickers, weights, betas, liquidity, config)
     resilient_weights = resilient_allocation(returns, betas, liquidity)
     resilient_stress = stress_test_portfolio(config.tickers, resilient_weights, betas, liquidity, config)
+    resilient_returns = returns.dot(resilient_weights)
+    resilient_annual_return = resilient_returns.mean() * TRADING_DAYS
+    resilient_volatility = np.sqrt(resilient_weights @ covariance @ resilient_weights)
+    resilient_sharpe = (
+        (resilient_annual_return - config.risk_free_rate) / resilient_volatility
+        if resilient_volatility > 0 else np.nan
+    )
+    resilient_simulated_returns = np.einsum("das,a->ds", cube, resilient_weights)
+    resilient_base_paths = np.vstack(
+        [
+            np.full(config.simulations, config.initial_investment),
+            config.initial_investment * np.cumprod(1 + resilient_simulated_returns, axis=0),
+        ]
+    )
+    resilient_terminal, _ = apply_liquidity_cascade(
+        resilient_base_paths, resilient_weights, liquidity, config, terminal_only=True
+    )
+    resilient_target_probability = float(np.mean(resilient_terminal >= config.target_value))
     comparison = pd.DataFrame(
         {
             "Portfolio": ["Current", "Crisis-Resilient"],
@@ -443,6 +468,14 @@ def run_analysis(
             "Weighted Liquidity Score": [
                 weights @ liquidity["Liquidity Score"].to_numpy(),
                 resilient_weights @ liquidity["Liquidity Score"].to_numpy(),
+            ],
+            "Sharpe Ratio": [
+                (annual_return - config.risk_free_rate) / annual_volatility,
+                resilient_sharpe,
+            ],
+            "Target Probability": [
+                float(np.mean(terminal >= config.target_value)),
+                resilient_target_probability,
             ],
         }
     )
