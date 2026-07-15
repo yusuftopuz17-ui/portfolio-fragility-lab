@@ -59,7 +59,7 @@ def apply_institutional_theme() -> None:
         :root {{
           --bg:{COLORS['background']}; --surface:{COLORS['secondary']}; --card:{COLORS['card']};
           --elevated:{COLORS['elevated']}; --border:{COLORS['border']}; --text:{COLORS['text']};
-          --secondary:{COLORS['secondary_text']}; --muted:{COLORS['muted']}; --accent:{COLORS['accent']};
+          --secondary-text:{COLORS['secondary_text']}; --muted:{COLORS['muted']}; --accent:{COLORS['accent']};
           --positive:{COLORS['positive']}; --warning:{COLORS['warning']}; --negative:{COLORS['negative']};
         }}
         html, body, [class*="css"], .stApp {{
@@ -74,7 +74,7 @@ def apply_institutional_theme() -> None:
         h2 {{ font-size:1.35rem!important; letter-spacing:-.02em!important; margin-top:.7rem!important; }}
         h3 {{ font-size:1.02rem!important; letter-spacing:-.01em!important; }}
         h1,h2,h3,h4 {{ color:var(--text)!important; }}
-        p,.stCaption,[data-testid="stCaptionContainer"] {{ color:var(--secondary); }}
+        p,.stCaption,[data-testid="stCaptionContainer"] {{ color:var(--secondary-text); }}
         [data-testid="stTabs"] [data-baseweb="tab-list"] {{ gap:.25rem; overflow-x:auto; scrollbar-width:thin; }}
         [data-testid="stTabs"] button[role="tab"] {{
           color:var(--muted); background:transparent; border-radius:8px 8px 0 0; padding:.55rem .85rem;
@@ -100,8 +100,19 @@ def apply_institutional_theme() -> None:
           background:var(--card); color:var(--text);
         }}
         .stButton>button:hover, .stDownloadButton>button:hover {{ border-color:var(--accent); color:var(--accent); }}
-        .stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] {{ background:var(--accent); color:#041311; border-color:var(--accent); }}
-        [data-testid="stExpander"] {{ background:var(--secondary); border:1px solid var(--border); border-radius:10px; }}
+        .stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"],
+        [data-testid="stBaseButton-primary"] {{ background:var(--accent)!important; color:#041311!important; border-color:var(--accent)!important; }}
+        [data-testid="stBaseButton-primary"] p, [data-testid="stBaseButton-primary"] span {{ color:#041311!important; }}
+        [data-testid="stExpander"], [data-testid="stExpander"] details,
+        [data-testid="stExpander"] summary, [data-testid="stExpanderDetails"] {{
+          background:var(--surface)!important; color:var(--text)!important;
+        }}
+        [data-testid="stExpander"] {{ border:1px solid var(--border); border-radius:10px; overflow:hidden; }}
+        [data-testid="stExpander"] summary p, [data-testid="stExpander"] summary span,
+        [data-testid="stExpander"] label, [data-testid="stExpander"] [data-testid="stWidgetLabel"] p {{
+          color:var(--text)!important;
+        }}
+        [data-testid="stExpander"] summary svg {{ fill:var(--secondary-text)!important; color:var(--secondary-text)!important; }}
         .hero {{ padding:.25rem 0 .9rem; border-bottom:1px solid var(--border); margin-bottom:1rem; }}
         .eyebrow {{ color:var(--accent); font-size:.72rem; font-weight:750; letter-spacing:.14em; text-transform:uppercase; }}
         .hero p {{ max-width:900px; margin:.45rem 0 0; font-size:.95rem; }}
@@ -117,12 +128,12 @@ def apply_institutional_theme() -> None:
         .positive {{ color:var(--positive); }} .warning {{ color:var(--warning); }} .negative {{ color:var(--negative); }} .neutral {{ color:var(--accent); }}
         .insight-card {{ background:var(--card); border:1px solid var(--border); border-radius:11px; padding:.9rem 1rem; height:100%; }}
         .insight-card h4 {{ margin:0 0 .45rem; font-size:.86rem; }}
-        .insight-card ul {{ margin:.25rem 0 .45rem; padding-left:1.15rem; color:var(--secondary); }}
+        .insight-card ul {{ margin:.25rem 0 .45rem; padding-left:1.15rem; color:var(--secondary-text); }}
         .insight-card li {{ margin:.28rem 0; font-size:.84rem; }}
-        .callout {{ border-left:3px solid var(--accent); background:var(--card); padding:.72rem .9rem; border-radius:0 9px 9px 0; color:var(--secondary); font-size:.84rem; }}
-        .method-note {{ padding:.72rem .85rem; border:1px solid var(--border); border-radius:9px; background:var(--secondary); color:var(--secondary); font-size:.8rem; }}
+        .callout {{ border-left:3px solid var(--accent); background:var(--card); padding:.72rem .9rem; border-radius:0 9px 9px 0; color:var(--secondary-text); font-size:.84rem; }}
+        .method-note {{ padding:.72rem .85rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--secondary-text); font-size:.8rem; }}
         .mini-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }}
-        .mini-stat {{ background:var(--secondary); border:1px solid var(--border); border-radius:9px; padding:.65rem .7rem; }}
+        .mini-stat {{ background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:.65rem .7rem; }}
         .mini-stat span {{ display:block; color:var(--muted); font-size:.67rem; }}
         .mini-stat strong {{ display:block; color:var(--text); font-size:1rem; margin-top:.22rem; font-variant-numeric:tabular-nums; }}
         .footer-note {{ margin-top:1.5rem; padding-top:.75rem; border-top:1px solid var(--border); color:var(--muted); font-size:.72rem; }}
@@ -628,16 +639,27 @@ def render_simulation(result, config) -> None:
         stats_display = pd.DataFrame({"Statistic": stats["Statistic"], "Value": display_values})
         st.dataframe(stats_display, hide_index=True, width="stretch")
     with paths_tab:
-        st.plotly_chart(fan_chart(result, "Percentile Fan Chart", 450), use_container_width=True, key="simulation_fan")
-        sample_count = min(100, result.paths.shape[1])
+        sample_count = min(150, result.paths.shape[1])
+        path_colors = [
+            "rgba(34,199,184,.13)", "rgba(91,141,239,.12)", "rgba(139,124,246,.12)",
+            "rgba(46,204,143,.11)", "rgba(231,169,75,.10)", "rgba(168,176,188,.09)",
+        ]
         figure = go.Figure()
         for index in range(sample_count):
-            figure.add_trace(go.Scatter(y=result.paths[:, index], mode="lines", line={"width": .55, "color": "rgba(91,141,239,.10)"}, showlegend=False, hoverinfo="skip"))
+            figure.add_trace(go.Scatter(
+                y=result.paths[:, index], mode="lines",
+                line={"width": .65, "color": path_colors[index % len(path_colors)]},
+                showlegend=False, hoverinfo="skip",
+            ))
         figure.add_trace(go.Scatter(y=result.path_percentiles["Median"], mode="lines", line={"width": 2.5, "color": COLORS["accent"]}, name="Median"))
-        style_figure(figure, f"Sample Paths ({sample_count} of {config.simulations:,})", 440)
+        figure.add_hline(y=config.initial_investment, line_dash="dot", line_color=COLORS["muted"], annotation_text="Initial")
+        figure.add_hline(y=config.target_value, line_dash="dash", line_color=COLORS["purple"], annotation_text="Target")
+        style_figure(figure, f"Monte Carlo Path Cloud ({sample_count} of {config.simulations:,} Paths)", 500)
         figure.update_xaxes(title="Trading day")
         figure.update_yaxes(tickprefix="$", tickformat=",")
         st.plotly_chart(figure, use_container_width=True, key="simulation_sample_paths")
+        st.caption("A representative subset of paths is shown to preserve readability and browser performance; the statistics use every simulated path.")
+        st.plotly_chart(fan_chart(result, "Simulation Percentile Fan Chart", 450), use_container_width=True, key="simulation_fan")
     with drawdown_tab:
         drawdowns = result.paths / np.maximum.accumulate(result.paths, axis=0) - 1
         maximum = drawdowns.min(axis=0)
