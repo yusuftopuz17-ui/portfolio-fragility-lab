@@ -104,8 +104,9 @@ def apply_institutional_theme() -> None:
         [data-testid="stBaseButton-primary"] {{ background:var(--accent)!important; color:#041311!important; border-color:var(--accent)!important; }}
         [data-testid="stBaseButton-primary"] p, [data-testid="stBaseButton-primary"] span {{ color:#041311!important; }}
         [data-testid="stExpander"], [data-testid="stExpander"] details,
-        [data-testid="stExpander"] summary, [data-testid="stExpanderDetails"] {{
-          background:var(--surface)!important; color:var(--text)!important;
+        [data-testid="stExpander"] details > div, [data-testid="stExpander"] summary,
+        [data-testid="stExpanderDetails"] {{
+          background:#0B0D10!important; color:#F3F4F6!important;
         }}
         [data-testid="stExpander"] {{ border:1px solid var(--border); border-radius:10px; overflow:hidden; }}
         [data-testid="stExpander"] summary p, [data-testid="stExpander"] summary span,
@@ -131,7 +132,7 @@ def apply_institutional_theme() -> None:
         .insight-card ul {{ margin:.25rem 0 .45rem; padding-left:1.15rem; color:var(--secondary-text); }}
         .insight-card li {{ margin:.28rem 0; font-size:.84rem; }}
         .callout {{ border-left:3px solid var(--accent); background:var(--card); padding:.72rem .9rem; border-radius:0 9px 9px 0; color:var(--secondary-text); font-size:.84rem; }}
-        .method-note {{ padding:.72rem .85rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--secondary-text); font-size:.8rem; }}
+        .method-note {{ padding:.72rem .85rem; border:1px solid var(--border); border-radius:9px; background:#0B0D10!important; color:#A8B0BC!important; font-size:.8rem; }}
         .mini-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }}
         .mini-stat {{ background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:.65rem .7rem; }}
         .mini-stat span {{ display:block; color:var(--muted); font-size:.67rem; }}
