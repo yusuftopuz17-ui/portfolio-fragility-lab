@@ -35,9 +35,18 @@ st.markdown(
     h1,h2,h3 { color:var(--ink); letter-spacing:-0.025em; }
     p,.stCaption { color:var(--muted); }
     [data-testid="stMetric"] { background:rgba(15,31,50,.88); border:1px solid #20354d;
-      border-radius:14px; padding:17px 19px; box-shadow:0 12px 30px rgba(0,0,0,.18); }
+      border-radius:14px; padding:17px 19px; box-shadow:0 12px 30px rgba(0,0,0,.18);
+      min-width:0; overflow:visible; }
     [data-testid="stMetricLabel"] { color:#91a0b6; }
-    [data-testid="stMetricValue"] { color:#f5f8fc; }
+    [data-testid="stMetricValue"] { color:#f5f8fc; overflow:visible !important; }
+    [data-testid="stMetricValue"] > div {
+      font-size:clamp(1.35rem,1.8vw,2.2rem) !important;
+      line-height:1.15 !important;
+      letter-spacing:-0.035em;
+      white-space:nowrap !important;
+      overflow:visible !important;
+      text-overflow:clip !important;
+    }
     .hero { padding:16px 0 22px; }
     .eyebrow { color:#43d5c7; font-size:.78rem; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
     .hero h1 { font-size:clamp(2.2rem,4vw,4rem); line-height:1; margin:.5rem 0 1rem; }
