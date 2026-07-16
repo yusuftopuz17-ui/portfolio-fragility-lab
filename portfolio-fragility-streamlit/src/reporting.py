@@ -15,6 +15,11 @@ DISCLAIMER = (
 )
 
 
+def _horizon_text(config) -> str:
+    label = getattr(config, "horizon_label", "") or f"{config.simulation_days} model steps"
+    return f"{label} ({config.simulation_days:,} model steps)"
+
+
 def build_excel_report(result, config) -> bytes:
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -134,11 +139,16 @@ def build_pdf_report(result, config) -> bytes:
         PageBreak(),
         Paragraph("Methodology and assumptions", styles["Section"]),
         Paragraph(
-            f"Method: {config.method}; paths: {config.simulations:,}; horizon: {config.simulation_days} trading days; "
+            f"Method: {config.method}; paths: {config.simulations:,}; horizon: {_horizon_text(config)}; "
             f"confidence: {config.confidence:.0%}; historical start: {config.start_date}; risk-free rate: {config.risk_free_rate:.2%}. "
+            "Tradable security and benchmark prices are normalized to USD before return calculations; "
+            "Yahoo FX pairs retain their quoted return exposure. "
             f"Liquidity events use a {config.redemption_probability:.0%} conditional redemption probability, "
-            f"{config.redemption_pct:.0%} redemption size, {config.margin_call_pct:.0%} synthetic collateral call, "
-            f"and {config.cash_buffer_pct:.0%} cash buffer.", styles["BodyText"]
+            f"{config.redemption_pct:.0%} redemption size, {config.gross_leverage:.1f}× collateral-assumption leverage, "
+            f"{config.margin_call_pct:.0%} synthetic collateral call, and {config.cash_buffer_pct:.0%} cash buffer. "
+            "Collateral-assumption leverage affects only the liquidity overlay, not portfolio returns. "
+            "Forced-sale proceeds remain investor cash and only execution costs are treated as economic loss.",
+            styles["BodyText"],
         ),
         Paragraph("Limitations", styles["Section"]),
         Paragraph(DISCLAIMER, styles["BodyText"]),
@@ -214,7 +224,8 @@ def build_powerpoint_report(result, config) -> bytes:
         f"Liquidity shortfall probability: {metrics['liquidity_shortfall_probability']:.1%}",
     ])
     add_slide("Methodology and limitations", [
-        f"{config.method}; {config.simulations:,} paths; {config.simulation_days} trading days; {config.confidence:.0%} confidence",
+        f"{config.method}; {config.simulations:,} paths; {_horizon_text(config)}; {config.confidence:.0%} confidence",
+        f"Collateral-assumption leverage: {config.gross_leverage:.1f}×; sale proceeds remain investor cash.",
         "Historical estimates, stylized stress shocks, and transparent liquidity proxies are used.",
         DISCLAIMER,
     ])

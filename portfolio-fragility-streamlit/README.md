@@ -7,7 +7,7 @@ A results-first institutional portfolio stress-testing application. The platform
 - Bull, normal, crisis, and recovery regimes driven by a Markov transition process
 - Crisis volatility multipliers and correlations that converge during stress
 - Asset liquidity scores derived from median dollar volume and volatility
-- Investor redemption and margin-call triggers
+- Investor redemption and collateral-assumption margin-call triggers
 - Forced-sale logic with cash buffers and daily liquidation capacity
 - Bid–ask spread, slippage, and square-root market-impact proxies
 - Stylized 2008, March 2020, and 2022 stress scenarios
@@ -16,10 +16,14 @@ A results-first institutional portfolio stress-testing application. The platform
 - Transparent 0–100 Portfolio Fragility Score
 - Current versus crisis-resilient allocation comparison
 - GBM, historical bootstrap, Student-t, and regime-switching simulations
+- Global Yahoo Finance instrument search by company or asset name, covering supported equities, funds, indices, commodities, currencies, and digital assets
+- USD-normalized security pricing for mixed-currency portfolios, with quoted FX-pair return exposures preserved
+- Localized portfolio weights accepting both decimal commas and decimal points
+- Absolute-value or percentage-growth targets and custom hour/day/week/month/year horizons on a 252-step annual basis, including fractional-day scaling for short horizons
 - Six-section black-and-charcoal institutional dashboard with responsive KPI cards
 - Historical and stressed correlation heatmaps with dynamic diversification commentary
 - Long-only efficient frontier, rolling volatility, rolling Sharpe, beta, and benchmark correlation
-- Historical portfolio/benchmark drawdowns with peak, trough, recovery, and duration diagnostics
+- Historical portfolio/benchmark and separate asset-level drawdowns with peak, trough, recovery, and duration diagnostics
 - Interactive Plotly dashboards and Excel, CSV, PDF, and PowerPoint exports
 
 ## Run locally
@@ -44,7 +48,7 @@ streamlit run streamlit_app.py
 
 ## Model transparency
 
-The stress scenarios are educational approximations based on broad historical market behavior. Liquidity scores, spreads, liquidation capacity, and market impact are transparent proxies rather than security-level dealer quotes. The crisis-resilient allocation uses inverse volatility, beta penalties, liquidity scores, and a 45% position cap. It is an analytical comparison, not an investment recommendation. Report files are generated locally in memory; no external AI or reporting API is called.
+The stress scenarios are educational approximations based on broad historical market behavior. Tradable security prices are normalized to USD before cross-market return calculations; Yahoo FX pairs retain their quoted return exposure. Liquidity scores, spreads, liquidation capacity, and market impact are transparent proxies rather than security-level dealer quotes, particularly for indices or instruments without reported volume. The collateral-assumption leverage input affects only synthetic margin-call and liquidity calculations, not historical or simulated asset returns. Forced-sale proceeds remain investor cash and only execution costs are treated as economic loss. The crisis-resilient allocation uses inverse volatility, beta penalties, liquidity scores, and a feasible position cap. It is an analytical comparison, not an investment recommendation. Report files are generated locally in memory; no external AI or reporting API is called.
 
 ## Disclaimer
 

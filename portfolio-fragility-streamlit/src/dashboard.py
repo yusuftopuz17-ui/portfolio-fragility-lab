@@ -14,6 +14,8 @@ from plotly.subplots import make_subplots
 
 from .analytics import (
     REGIME_TRANSITION_MATRIX,
+    asset_drawdowns,
+    calendar_time_cagr,
     correlation_interpretation,
     correlation_matrices,
     efficient_frontier,
@@ -192,7 +194,11 @@ def ratio(value: float) -> str:
 
 
 def days(value: float) -> str:
-    return "Not recovered" if not np.isfinite(value) else f"{value:.0f} days"
+    if not np.isfinite(value):
+        return "Not recovered"
+    if value < 1:
+        return f"{value * 24:.1f} hours"
+    return f"{value:.0f} days"
 
 
 def compact_money(value: float) -> str:
@@ -204,6 +210,12 @@ def compact_money(value: float) -> str:
     if magnitude >= 1_000_000:
         return f"${value / 1_000_000:.1f}M"
     return money(value)
+
+
+def horizon_display(config) -> str:
+    """Format the user-selected calendar horizon and model resolution."""
+    label = getattr(config, "horizon_label", "") or f"{config.simulation_days} model steps"
+    return f"{label} ({config.simulation_days:,} model steps)"
 
 
 def score_status(score: float) -> tuple[str, str]:
@@ -240,7 +252,12 @@ def kpi_grid(items: list[dict[str, str]]) -> None:
 def style_figure(figure: go.Figure, title: str | None = None, height: int = 410, hovermode: str | None = None) -> go.Figure:
     figure.update_layout(
         template="plotly_dark",
-        title={"text": title, "x": 0.01, "xanchor": "left", "font": {"size": 15, "color": COLORS["text"]}} if title else None,
+        title={
+            "text": title or "",
+            "x": 0.01,
+            "xanchor": "left",
+            "font": {"size": 15, "color": COLORS["text"]},
+        },
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor=COLORS["secondary"],
         font={"family": "Inter, system-ui, sans-serif", "color": COLORS["secondary_text"], "size": 11},
@@ -261,12 +278,12 @@ def fan_chart(result, title: str = "Simulated Portfolio Value Range", height: in
     x = np.arange(len(p))
     figure = go.Figure()
     figure.add_trace(go.Scatter(x=x, y=p["P95"], line={"width": 0}, showlegend=False, hoverinfo="skip"))
-    figure.add_trace(go.Scatter(x=x, y=p["P5"], fill="tonexty", fillcolor="rgba(91,141,239,.13)", line={"width": 0}, name="5th–95th", hovertemplate="Day %{x}<br>P5: $%{y:,.0f}<extra></extra>"))
+    figure.add_trace(go.Scatter(x=x, y=p["P5"], fill="tonexty", fillcolor="rgba(91,141,239,.13)", line={"width": 0}, name="5th–95th", hovertemplate="Session %{x}<br>P5: $%{y:,.0f}<extra></extra>"))
     figure.add_trace(go.Scatter(x=x, y=p["P75"], line={"width": 0}, showlegend=False, hoverinfo="skip"))
-    figure.add_trace(go.Scatter(x=x, y=p["P25"], fill="tonexty", fillcolor="rgba(34,199,184,.23)", line={"width": 0}, name="25th–75th", hovertemplate="Day %{x}<br>P25: $%{y:,.0f}<extra></extra>"))
-    figure.add_trace(go.Scatter(x=x, y=p["Median"], line={"color": COLORS["accent"], "width": 2.4}, name="Median", hovertemplate="Day %{x}<br>Median: $%{y:,.0f}<extra></extra>"))
+    figure.add_trace(go.Scatter(x=x, y=p["P25"], fill="tonexty", fillcolor="rgba(34,199,184,.23)", line={"width": 0}, name="25th–75th", hovertemplate="Session %{x}<br>P25: $%{y:,.0f}<extra></extra>"))
+    figure.add_trace(go.Scatter(x=x, y=p["Median"], line={"color": COLORS["accent"], "width": 2.4}, name="Median", hovertemplate="Session %{x}<br>Median: $%{y:,.0f}<extra></extra>"))
     style_figure(figure, title, height, "x unified")
-    figure.update_xaxes(title="Trading day")
+    figure.update_xaxes(title="Simulation step")
     figure.update_yaxes(tickprefix="$", tickformat=",")
     return figure
 
@@ -331,14 +348,13 @@ def terminal_distribution(result, config) -> go.Figure:
     values = result.terminal_values
     figure = go.Figure(go.Histogram(x=values, nbinsx=60, marker_color=COLORS["info"], opacity=.78, hovertemplate="Terminal wealth: $%{x:,.0f}<br>Paths: %{y}<extra></extra>"))
     references = [
-        (config.initial_investment, "Initial", COLORS["warning"], -35),
-        (config.target_value, "Target", COLORS["purple"], 35),
-        (float(np.mean(values)), "Mean", COLORS["accent"], -55),
-        (float(np.median(values)), "Median", COLORS["text"], 55),
+        (config.initial_investment, COLORS["warning"]),
+        (config.target_value, COLORS["purple"]),
+        (float(np.mean(values)), COLORS["accent"]),
+        (float(np.median(values)), COLORS["text"]),
     ]
-    for value, label, color, ay in references:
+    for value, color in references:
         figure.add_vline(x=value, line_dash="dash", line_color=color, line_width=1.4)
-        figure.add_annotation(x=value, y=1, yref="paper", text=label, showarrow=True, arrowhead=0, ax=0, ay=ay, font={"size": 10, "color": color}, bgcolor=COLORS["elevated"], bordercolor=color)
     style_figure(figure, "Terminal Wealth Distribution", 455)
     figure.update_xaxes(tickprefix="$", tickformat=",")
     figure.update_layout(showlegend=False, bargap=.03)
@@ -384,7 +400,7 @@ def render_executive(result, config) -> None:
         {"label": "Probability of Target", "value": probability(metrics["probability_target"]), "badge": "Target", "tone": "neutral", "help": f"{round(metrics['probability_target'] * config.simulations):,} of {config.simulations:,} simulated paths ended at or above the selected {money(config.target_value)} target."},
         {"label": f"Monte Carlo VaR ({config.confidence:.0%})", "value": money(metrics["var_currency"]), "badge": "Tail", "tone": "warning", "help": "Modeled loss threshold exceeded in the worst tail defined by the selected confidence level."},
         {"label": "Expected Shortfall", "value": money(metrics["es_currency"]), "badge": "Tail", "tone": "negative", "help": "Average modeled loss beyond the VaR threshold."},
-        {"label": "Median Recovery Time", "value": days(metrics["median_recovery_days"]), "badge": "Modeled", "tone": "neutral", "help": "Median trading days from simulated trough to recovery of the prior peak, among recovered paths."},
+        {"label": "Median Recovery Time", "value": days(metrics["median_recovery_days"]), "badge": "Modeled", "tone": "neutral", "help": "Median calendar time from simulated trough to recovery of the prior peak, among recovered paths."},
         {"label": f"Return vs {config.benchmark}", "value": pct(relative_return), "badge": "Above" if relative_return >= 0 else "Below", "tone": "positive" if relative_return >= 0 else "negative", "help": "Historical annualized portfolio return minus benchmark return over the selected period."},
     ])
     driver_row = result.fragility_components.loc[result.fragility_components["Weighted Contribution"].idxmax()]
@@ -526,22 +542,76 @@ def render_performance(result, config) -> None:
     growth_tab, assets_tab = st.tabs(["Portfolio vs Benchmark", "Asset-Level Performance"])
     with growth_tab:
         st.plotly_chart(benchmark_growth_chart(result, config.benchmark), use_container_width=True, key="performance_benchmark_growth")
+        drawdowns, episode = historical_drawdowns(result)
+        figure = go.Figure()
+        figure.add_trace(go.Scatter(x=drawdowns.index, y=drawdowns["Portfolio"], name="Portfolio", fill="tozeroy", fillcolor="rgba(240,93,100,.18)", line={"color": COLORS["negative"], "width": 1.8}))
+        figure.add_trace(go.Scatter(x=drawdowns.index, y=drawdowns["Benchmark"], name=config.benchmark, line={"color": COLORS["info"], "width": 1.5, "dash": "dot"}))
+        figure.add_vrect(x0=episode["start"], x1=episode["recovery"] or drawdowns.index[-1], fillcolor="rgba(240,93,100,.08)", line_width=0)
+        style_figure(figure, "Portfolio and Benchmark Drawdown", 440, "x unified")
+        figure.update_yaxes(tickformat=".0%")
+        st.plotly_chart(figure, use_container_width=True, key="performance_drawdown")
+        recovery_text = episode["recovery"].strftime("%Y-%m-%d") if episode["recovery"] is not None else "Not recovered"
+        st.markdown(f'<div class="mini-grid"><div class="mini-stat"><span>Maximum drawdown</span><strong>{pct(episode["maximum_drawdown"])}</strong></div><div class="mini-stat"><span>Peak date</span><strong>{episode["start"].strftime("%Y-%m-%d")}</strong></div><div class="mini-stat"><span>Trough date</span><strong>{episode["trough"].strftime("%Y-%m-%d")}</strong></div><div class="mini-stat"><span>Recovery / duration</span><strong>{recovery_text} · {episode["duration_days"]} days</strong></div></div>', unsafe_allow_html=True)
     with assets_tab:
         st.plotly_chart(asset_growth_chart(result, config.benchmark), use_container_width=True, key="performance_asset_growth")
-        annual_asset_returns = (1 + result.asset_returns).prod() ** (252 / len(result.asset_returns)) - 1
+        annual_asset_returns = result.asset_returns.apply(calendar_time_cagr)
         annual_asset_volatility = result.asset_returns.std() * np.sqrt(252)
         asset_table = pd.DataFrame({"Ticker": result.asset_returns.columns, "Annual Return": annual_asset_returns.values, "Annual Volatility": annual_asset_volatility.values})
         st.dataframe(asset_table.style.format({"Annual Return": "{:.1%}", "Annual Volatility": "{:.1%}"}), hide_index=True, width="stretch")
-    drawdowns, episode = historical_drawdowns(result)
-    figure = go.Figure()
-    figure.add_trace(go.Scatter(x=drawdowns.index, y=drawdowns["Portfolio"], name="Portfolio", fill="tozeroy", fillcolor="rgba(240,93,100,.18)", line={"color": COLORS["negative"], "width": 1.8}))
-    figure.add_trace(go.Scatter(x=drawdowns.index, y=drawdowns["Benchmark"], name=config.benchmark, line={"color": COLORS["info"], "width": 1.5, "dash": "dot"}))
-    figure.add_vrect(x0=episode["start"], x1=episode["recovery"] or drawdowns.index[-1], fillcolor="rgba(240,93,100,.08)", line_width=0)
-    style_figure(figure, "Historical Drawdown", 440, "x unified")
-    figure.update_yaxes(tickformat=".0%")
-    st.plotly_chart(figure, use_container_width=True, key="performance_drawdown")
-    recovery_text = episode["recovery"].strftime("%Y-%m-%d") if episode["recovery"] is not None else "Not recovered"
-    st.markdown(f'<div class="mini-grid"><div class="mini-stat"><span>Maximum drawdown</span><strong>{pct(episode["maximum_drawdown"])}</strong></div><div class="mini-stat"><span>Peak date</span><strong>{episode["start"].strftime("%Y-%m-%d")}</strong></div><div class="mini-stat"><span>Trough date</span><strong>{episode["trough"].strftime("%Y-%m-%d")}</strong></div><div class="mini-stat"><span>Recovery / duration</span><strong>{recovery_text} · {episode["duration_days"]} days</strong></div></div>', unsafe_allow_html=True)
+        ticker_drawdowns, ticker_episodes = asset_drawdowns(result)
+        columns = 2
+        rows = int(np.ceil(len(ticker_drawdowns.columns) / columns))
+        subplot_titles = [f"{ticker} drawdown" for ticker in ticker_drawdowns.columns]
+        figure = make_subplots(
+            rows=rows,
+            cols=columns,
+            subplot_titles=subplot_titles,
+            shared_xaxes=False,
+            vertical_spacing=min(0.12, 0.28 / max(rows, 1)),
+        )
+        for index, ticker in enumerate(ticker_drawdowns.columns):
+            row = index // columns + 1
+            column = index % columns + 1
+            color = ASSET_COLORS[index % len(ASSET_COLORS)]
+            figure.add_trace(
+                go.Scatter(
+                    x=ticker_drawdowns.index,
+                    y=ticker_drawdowns[ticker],
+                    name=ticker,
+                    fill="tozeroy",
+                    fillcolor="rgba(240,93,100,.10)",
+                    line={"color": color, "width": 1.4},
+                    hovertemplate=f"{ticker}<br>%{{x|%Y-%m-%d}}<br>Drawdown: %{{y:.1%}}<extra></extra>",
+                    showlegend=False,
+                ),
+                row=row,
+                col=column,
+            )
+            figure.update_yaxes(tickformat=".0%", row=row, col=column)
+        style_figure(
+            figure,
+            "Asset-Level Historical Drawdowns",
+            max(420, rows * 245),
+            "x",
+        )
+        figure.update_annotations(font={"size": 11, "color": COLORS["text"]})
+        st.plotly_chart(
+            figure,
+            use_container_width=True,
+            key="performance_asset_drawdowns",
+        )
+        if not ticker_episodes.empty:
+            ticker_display = ticker_episodes.copy()
+            ticker_display["Peak Date"] = ticker_display["Peak Date"].dt.strftime("%Y-%m-%d")
+            ticker_display["Trough Date"] = ticker_display["Trough Date"].dt.strftime("%Y-%m-%d")
+            ticker_display["Recovery Date"] = ticker_display["Recovery Date"].apply(
+                lambda value: value.strftime("%Y-%m-%d") if pd.notna(value) else "Not recovered"
+            )
+            st.dataframe(
+                ticker_display.style.format({"Maximum Drawdown": "{:.1%}"}),
+                hide_index=True,
+                width="stretch",
+            )
     comparison = pd.DataFrame({
         "Metric": ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Maximum Drawdown"],
         "Portfolio": [pct(metrics["historical_return"]), pct(metrics["historical_volatility"]), ratio(metrics["sharpe"]), pct(metrics["historical_max_drawdown"])],
@@ -589,7 +659,7 @@ def render_stress_fragility(result, config) -> None:
         kpi_grid([
             {"label": "Liquidity Score", "value": f"{m['weighted_liquidity_score']:.0f}/100", "badge": "Proxy", "tone": "neutral", "help": "Weighted tradability proxy based on median dollar volume and volatility."},
             {"label": "Redemption Event", "value": pct(m["redemption_probability_realized"]), "badge": "Conditional", "tone": "warning", "help": "Share of paths with a drawdown breach followed by the modeled investor redemption event."},
-            {"label": "Synthetic Collateral Call", "value": pct(m["margin_call_probability"]), "badge": "Assumption", "tone": "warning", "help": "Share of breached paths receiving the stated margin-call percentage. This is a synthetic collateral assumption, not observed leverage."},
+            {"label": "Synthetic Collateral Call", "value": pct(m["margin_call_probability"]), "badge": "Assumption", "tone": "warning", "help": f"Share of paths receiving the modeled collateral call at {config.gross_leverage:.1f}× collateral-assumption leverage. It is zero when leverage is 1.0×."},
             {"label": "Forced Sale", "value": pct(m["forced_sale_probability"]), "badge": "Liquidity", "tone": "negative" if m["forced_sale_probability"] > .25 else "warning", "help": "Share of paths requiring asset sales after redemption/collateral needs exceed the cash buffer; it is not loss probability."},
             {"label": "Liquidity Shortfall", "value": shortfall_value, "badge": "Capacity", "tone": "positive" if m["liquidity_shortfall_probability"] <= 0 else "negative", "help": "Share of modeled forced sales exceeding estimated participation capacity."},
             {"label": "Conditional Sale Cost", "value": money(m["conditional_forced_sale_cost"]), "badge": "Estimated", "tone": "warning", "help": "Average spread, slippage, and market-impact cost among paths with forced sales."},
@@ -611,11 +681,12 @@ def render_stress_fragility(result, config) -> None:
             figure.update_traces(texttemplate="%{text:.1%}", textposition="outside")
             figure.update_layout(showlegend=False)
             st.plotly_chart(figure, use_container_width=True, key="liquidity_cascade")
-        st.markdown(f'<div class="callout"><b>{least["Ticker"]}</b> is the least liquid holding under the proxy: score {least["Liquidity Score"]:.1f}/100, median dollar volume {compact_money(least["Median Dollar Volume"])}, and estimated spread {least["Estimated Spread (bps)"]:.1f} bps. Bubble size represents estimated 5% ADV sale capacity.</div>', unsafe_allow_html=True)
+        quality = least.get("Liquidity Data Quality", "Observed volume")
+        st.markdown(f'<div class="callout"><b>{least["Ticker"]}</b> is the least liquid holding under the model: score {least["Liquidity Score"]:.1f}/100, median dollar volume {compact_money(least["Median Dollar Volume"])}, and estimated spread {least["Estimated Spread (bps)"]:.1f} bps. Data basis: <b>{escape(str(quality))}</b>. Bubble size represents estimated 5% ADV sale capacity.</div>', unsafe_allow_html=True)
         st.dataframe(result.liquidity.style.format({"Liquidity Score": "{:.1f}", "Median Dollar Volume": "${:,.0f}", "Estimated Spread (bps)": "{:.1f}", "5% ADV Capacity": "${:,.0f}"}), hide_index=True, width="stretch")
         with st.expander("Modeled leverage, redemption, and execution assumptions"):
-            st.write(f"Drawdown trigger: {config.margin_trigger:.1%}; conditional redemption probability: {config.redemption_probability:.0%}; redemption size: {config.redemption_pct:.0%}; synthetic collateral call: {config.margin_call_pct:.0%}; cash buffer: {config.cash_buffer_pct:.0%}.")
-            st.caption("The collateral call is a scenario proxy. If the portfolio has no leverage, set Margin call (%) to 0 in Liquidity cascade assumptions.")
+            st.write(f"Drawdown trigger: {config.margin_trigger:.1%}; conditional redemption probability: {config.redemption_probability:.0%}; redemption size: {config.redemption_pct:.0%}; collateral-assumption leverage: {config.gross_leverage:.1f}×; synthetic collateral-call rate: {config.margin_call_pct:.0%}; cash buffer: {config.cash_buffer_pct:.0%}.")
+            st.caption("Collateral-assumption leverage affects only the liquidity overlay, not portfolio returns. At 1.0×, modeled collateral-call probability is zero. Sale proceeds remain part of investor wealth as cash; only execution costs are treated as an economic loss.")
     with scenarios:
         worst = result.stress_tests.loc[result.stress_tests["Net Portfolio Shock"].idxmin()]
         kpi_grid([
@@ -630,11 +701,11 @@ def render_stress_fragility(result, config) -> None:
         figure.update_traces(texttemplate="%{text:.1%}", textposition="outside")
         figure.update_layout(coloraxis_showscale=False)
         st.plotly_chart(figure, use_container_width=True, key="stress_scenarios")
-        formatted = result.stress_tests.style.format({"Gross Portfolio Shock": "{:.1%}", "Liquidation Cost": "{:.2%}", "Net Portfolio Shock": "{:.1%}", "Stressed Value": "${:,.0f}", "Correlation Assumption": "{:.2f}", "Liquidity Capacity Multiplier": "{:.0%}"})
+        formatted = result.stress_tests.style.format({"Gross Portfolio Shock": "{:.1%}", "Liquidation Cost": "{:.2%}", "Net Portfolio Shock": "{:.1%}", "Stressed Value": "${:,.0f}", "Correlation Convergence": "{:.0%}", "Liquidity Capacity Multiplier": "{:.0%}"})
         st.dataframe(formatted, hide_index=True, width="stretch")
         driver_text = "; ".join(f"{row['Scenario']}: {row['Largest Loss Driver']}" for _, row in result.stress_tests.iterrows())
         st.markdown(f'<div class="callout">Largest modeled loss driver by scenario — {driver_text}. Contributions reflect portfolio weights, historical benchmark sensitivity, and transparent asset-class shock adjustments.</div>', unsafe_allow_html=True)
-        st.caption("These are transparent stylized approximations—not official regulatory stress tests or forecasts.")
+        st.caption("These are transparent stylized approximations—not official regulatory stress tests or forecasts. Correlation convergence is the deterministic blend toward a common market shock used in each scenario.")
     with resilient:
         allocation = pd.DataFrame({"Ticker": config.tickers, "Current": config.weights, "Crisis-Resilient": result.resilient_weights})
         allocation["Change"] = allocation["Crisis-Resilient"] - allocation["Current"]
@@ -652,15 +723,30 @@ def render_stress_fragility(result, config) -> None:
         tail_change = defensive["Worst Stress Loss"] - current["Worst Stress Loss"]
         increased = ", ".join(allocation.loc[allocation["Change"] > .01, "Ticker"]) or "none"
         reduced = ", ".join(allocation.loc[allocation["Change"] < -.01, "Ticker"]) or "none"
-        st.markdown(f'<div class="callout"><b>Trade-off:</b> historical return changes by {return_change:+.1%}, volatility by {vol_change:+.1%}, and worst stress loss improves by {tail_change:+.1%}. Increased: {increased}; reduced: {reduced}. The rules favor liquidity, lower volatility, and lower positive beta, subject to a 45% cap.</div>', unsafe_allow_html=True)
+        position_cap = max(0.45, 1 / len(config.tickers))
+        st.markdown(f'<div class="callout"><b>Trade-off:</b> historical return changes by {return_change:+.1%}, volatility by {vol_change:+.1%}, and worst stress loss improves by {tail_change:+.1%}. Increased: {increased}; reduced: {reduced}. The rules favor liquidity, lower volatility, and lower positive beta, subject to a feasible {position_cap:.0%} position cap.</div>', unsafe_allow_html=True)
         st.caption("The crisis-resilient allocation is an analytical reference and is not investment advice.")
 
 
 def render_simulation(result, config) -> None:
     method_alias = {"Geometric Brownian Motion": "GBM", "Historical Bootstrap": "Bootstrap", "Student-t": "Student-t", "Regime Switching": "Regime Switching"}.get(config.method, config.method)
-    st.markdown(f'<div class="callout"><b>Model:</b> {escape(method_alias)} · <b>Paths:</b> {config.simulations:,} · <b>Horizon:</b> {config.simulation_days} trading days · <b>Initial:</b> {money(config.initial_investment)} · <b>Target:</b> {money(config.target_value)} · <b>Confidence:</b> {config.confidence:.0%}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="callout"><b>Model:</b> {escape(method_alias)} · <b>Paths:</b> {config.simulations:,} · <b>Horizon:</b> {escape(horizon_display(config))} · <b>Initial:</b> {money(config.initial_investment)} · <b>Target:</b> {money(config.target_value)} · <b>Confidence:</b> {config.confidence:.0%}</div>', unsafe_allow_html=True)
     distribution_tab, paths_tab, drawdown_tab = st.tabs(["Distribution", "Paths & Percentiles", "Drawdown Risk"])
     with distribution_tab:
+        reference_items = [
+            ("Initial", config.initial_investment, COLORS["warning"]),
+            ("Target", config.target_value, COLORS["purple"]),
+            ("Mean", float(np.mean(result.terminal_values)), COLORS["accent"]),
+            ("Median", float(np.median(result.terminal_values)), COLORS["text"]),
+        ]
+        st.markdown(
+            '<div class="mini-grid">' + "".join(
+                f'<div class="mini-stat" style="border-top:2px solid {color}">'
+                f'<span>{escape(label)}</span><strong>{money(value)}</strong></div>'
+                for label, value, color in reference_items
+            ) + "</div>",
+            unsafe_allow_html=True,
+        )
         left, right = st.columns([1.35, .85])
         with left:
             st.plotly_chart(terminal_distribution(result, config), use_container_width=True, key="simulation_terminal_distribution")
@@ -697,7 +783,7 @@ def render_simulation(result, config) -> None:
         figure.add_hline(y=config.initial_investment, line_dash="dot", line_color=COLORS["muted"], annotation_text="Initial")
         figure.add_hline(y=config.target_value, line_dash="dash", line_color=COLORS["purple"], annotation_text="Target")
         style_figure(figure, f"Monte Carlo Path Cloud ({sample_count} of {config.simulations:,} Paths)", 500)
-        figure.update_xaxes(title="Trading day")
+        figure.update_xaxes(title="Simulation step")
         figure.update_yaxes(tickprefix="$", tickformat=",")
         st.plotly_chart(figure, use_container_width=True, key="simulation_sample_paths")
         st.caption("A representative subset of paths is shown to preserve readability and browser performance; the statistics use every simulated path.")
@@ -713,7 +799,8 @@ def render_simulation(result, config) -> None:
         st.markdown(f'<div class="callout">Median simulated maximum drawdown is <b>{pct(result.metrics["median_simulated_drawdown"])}</b>. Median modeled recovery time is <b>{days(result.metrics["median_recovery_days"])}</b>, with a recovery incidence of <b>{pct(result.metrics["recovery_probability"])}</b> within the selected horizon.</div>', unsafe_allow_html=True)
     with st.expander("Simulation assumptions and methodology"):
         st.write(f"Model: {config.method}; random seed: {config.seed}; Student-t degrees of freedom: {config.student_df}; annual risk-free rate: {config.risk_free_rate:.2%}.")
-        st.write(f"Liquidity overlay: redemption probability {config.redemption_probability:.0%}, redemption size {config.redemption_pct:.0%}, synthetic collateral call {config.margin_call_pct:.0%}, drawdown trigger {config.margin_trigger:.1%}, cash buffer {config.cash_buffer_pct:.0%}.")
+        st.write(f"Liquidity overlay: redemption probability {config.redemption_probability:.0%}, redemption size {config.redemption_pct:.0%}, collateral-assumption leverage {config.gross_leverage:.1f}×, synthetic collateral-call rate {config.margin_call_pct:.0%}, drawdown trigger {config.margin_trigger:.1%}, cash buffer {config.cash_buffer_pct:.0%}.")
+        st.caption("Collateral-assumption leverage affects only the synthetic liquidity overlay. Forced-sale proceeds are modeled as cash retained by the investor; execution costs and the changed post-sale asset/cash mix affect terminal wealth.")
         st.caption("Outputs are simulated estimates conditional on historical inputs and stated assumptions.")
 
 
@@ -722,7 +809,7 @@ def render_report(result, config) -> None:
     section_header("Export Center", "Analysis packages for review, presentation, and audit")
     metadata = pd.DataFrame({
         "Field": ["Portfolio", "Generated", "Tickers", "Benchmark", "Method", "Paths", "Horizon", "Confidence"],
-        "Value": ["Portfolio Fragility Lab", generated, ", ".join(config.tickers), config.benchmark, config.method, f"{config.simulations:,}", f"{config.simulation_days} trading days", f"{config.confidence:.0%}"],
+        "Value": ["Portfolio Fragility Lab", generated, ", ".join(config.tickers), config.benchmark, config.method, f"{config.simulations:,}", horizon_display(config), f"{config.confidence:.0%}"],
     })
     st.dataframe(metadata, hide_index=True, width="stretch")
     terminal_csv = pd.DataFrame({"terminal_value": result.terminal_values}).to_csv(index=False).encode("utf-8")
@@ -773,7 +860,8 @@ def render_report(result, config) -> None:
             for name, detail in report_errors.items():
                 st.code(f"{name.upper()}: {detail}")
     with st.expander("Methodology and assumptions", expanded=True):
-        st.write(f"Historical data begins {config.start_date}; benchmark {config.benchmark}; simulation model {config.method}; {config.simulations:,} paths over {config.simulation_days} trading days; confidence {config.confidence:.0%}.")
+        st.write(f"Historical data begins {config.start_date}; benchmark {config.benchmark}; simulation model {config.method}; {config.simulations:,} paths over {horizon_display(config)}; confidence {config.confidence:.0%}.")
+        st.caption("Tradable security prices are normalized to the USD base currency; Yahoo FX pairs retain their quoted return exposure. The model uses a 252-step annual basis and fractional-day scaling for short horizons.")
         st.write("Fragility combines drawdown severity, liquidity shortfall, forced-sale exposure, crisis-correlation instability, and concentration. Stress scenarios are stylized historical approximations. Liquidity scores and execution costs are transparent proxies based on dollar volume, volatility, spread, slippage, and market impact.")
     with st.expander("Limitations and disclaimer", expanded=True):
         st.write(DISCLAIMER)
